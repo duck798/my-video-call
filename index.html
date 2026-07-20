@@ -50,12 +50,10 @@
                 <div class="video-label" id="remote-label">Người gọi</div>
             </div>
             
-            <!-- Local Video is now hidden, we only show Canvas -->
-            <video id="local-video" autoplay muted playsinline class="hidden"></video>
-
-            <!-- Local Canvas for rendering Face & Effects -->
+            <!-- Local Video and Canvas -->
             <div class="video-wrapper local">
-                <canvas id="local-canvas"></canvas>
+                <video id="local-video" autoplay muted playsinline></video>
+                <canvas id="local-canvas" class="hidden"></canvas>
                 <div class="video-label">Bạn</div>
             </div>
         </main>

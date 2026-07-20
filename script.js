@@ -22,7 +22,7 @@ const toggleEffectBtn = document.getElementById('toggle-effect-btn');
 // State
 let peer;
 let localStream;
-let processedStream; 
+let canvasStream; 
 let currentCall;
 let isAudioMuted = false;
 let isVideoStopped = false;
@@ -89,8 +89,14 @@ async function initApp(peerId, displayName) {
 
     peer.on('call', (call) => {
       if (confirm('Có người đang gọi cho bạn! Bạn có muốn nghe máy không?')) {
-        call.answer(processedStream); // Answer with persistent canvas stream
+        // Luôn trả lời bằng luồng gốc (đảm bảo Audio luôn hoạt động 100%)
+        call.answer(localStream); 
         handleCall(call);
+        
+        // Nếu đang bật hiệu ứng thì đổi track video ngay sau đó
+        if (currentEffectIndex > 0) {
+          setTimeout(() => applyVideoTrackToCall(canvasStream.getVideoTracks()[0]), 500);
+        }
       } else {
         call.close();
       }
@@ -111,13 +117,7 @@ async function setupMedia() {
     });
     
     localVideo.srcObject = localStream;
-    
-    // Start Canvas stream at 30 FPS
-    const canvasStream = localCanvas.captureStream(30);
-    const audioTracks = localStream.getAudioTracks();
-    
-    // Create persistent stream that merges Audio from mic and Video from canvas
-    processedStream = new MediaStream([canvasStream.getVideoTracks()[0], ...audioTracks]);
+    canvasStream = localCanvas.captureStream(30);
 
   } catch (err) {
     console.error('Failed to get local stream', err);
@@ -133,7 +133,7 @@ function handleCall(call) {
 
   call.on('stream', (remoteStream) => {
     remoteVideo.srcObject = remoteStream;
-    // Explicitly play to avoid autoplay block
+    // Bắt buộc trình duyệt phát video & audio (tránh lỗi màn hình đen Autoplay)
     remoteVideo.play().catch(e => console.error("Auto-play prevented", e));
   });
 
@@ -147,6 +147,15 @@ function handleCall(call) {
 
   endCallBtn.classList.remove('hidden');
   callBtn.classList.add('hidden');
+}
+
+function applyVideoTrackToCall(track) {
+  if (currentCall && currentCall.peerConnection) {
+    const sender = currentCall.peerConnection.getSenders().find(s => s.track.kind === 'video');
+    if (sender) {
+      sender.replaceTrack(track).catch(err => console.error("Lỗi khi đổi track:", err));
+    }
+  }
 }
 
 // 3. Setup Face Mesh (MediaPipe)
@@ -171,18 +180,13 @@ function setupFaceMesh() {
 
   camera = new Camera(localVideo, {
     onFrame: async () => {
-      if (isVideoStopped) {
-        // Draw black screen if video is stopped
-        localCanvas.width = 640;
-        localCanvas.height = 480;
-        ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, localCanvas.width, localCanvas.height);
-        return; // Don't process face if video is off
-      }
+      // Nếu tắt camera, dừng xử lý AI để nhẹ máy
+      if (isVideoStopped) return;
 
-      // We always process face mesh so we can draw the original image even if effect is 0
-      // Actually, if effect is 0, we can just draw image directly, but this keeps loop simple
-      await faceMesh.send({image: localVideo});
+      // Chỉ gọi AI quét mặt nếu đang bật hiệu ứng
+      if (currentEffectIndex > 0) {
+        await faceMesh.send({image: localVideo});
+      }
     },
     width: 640,
     height: 480
@@ -191,7 +195,7 @@ function setupFaceMesh() {
 }
 
 function onResults(results) {
-  if (isVideoStopped) return; // Handled in onFrame
+  if (isVideoStopped || currentEffectIndex === 0) return;
 
   localCanvas.width = localVideo.videoWidth || 640;
   localCanvas.height = localVideo.videoHeight || 480;
@@ -199,22 +203,21 @@ function onResults(results) {
   ctx.save();
   ctx.clearRect(0, 0, localCanvas.width, localCanvas.height);
   
-  // 1. Always draw the original video frame first
+  // 1. Luôn vẽ video gốc làm nền
   ctx.drawImage(results.image, 0, 0, localCanvas.width, localCanvas.height);
   
-  // 2. Draw Effects if active
-  if (currentEffectIndex > 0 && results.multiFaceLandmarks) {
+  // 2. Vẽ hiệu ứng chồng lên
+  if (results.multiFaceLandmarks) {
     for (const landmarks of results.multiFaceLandmarks) {
       if (typeof drawConnectors === 'undefined' || typeof FACEMESH_TESSELATION === 'undefined') continue;
 
       if (currentEffectIndex === 1) { // Lưới Neon
         drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, {color: '#38bdf8', lineWidth: 1});
       } 
-      else if (currentEffectIndex === 2) { // Cyborg (Red mesh + eyes)
+      else if (currentEffectIndex === 2) { // Cyborg
         drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, {color: '#ef4444', lineWidth: 1});
-        // Draw red glowing eyes
-        const leftEye = landmarks[159]; // approximate center of left eye
-        const rightEye = landmarks[386]; // approximate center of right eye
+        const leftEye = landmarks[159]; 
+        const rightEye = landmarks[386]; 
         drawGlowingEye(ctx, leftEye.x * localCanvas.width, leftEye.y * localCanvas.height);
         drawGlowingEye(ctx, rightEye.x * localCanvas.width, rightEye.y * localCanvas.height);
       }
@@ -223,7 +226,6 @@ function onResults(results) {
         const leftEye = landmarks[159]; 
         const rightEye = landmarks[386];
         
-        // Glasses
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 5;
         ctx.beginPath();
@@ -232,19 +234,18 @@ function onResults(results) {
         ctx.beginPath();
         ctx.arc(rightEye.x * localCanvas.width, rightEye.y * localCanvas.height, 25, 0, 2 * Math.PI);
         ctx.stroke();
-        // Glasses bridge
+        
         ctx.beginPath();
         ctx.moveTo(leftEye.x * localCanvas.width + 25, leftEye.y * localCanvas.height);
         ctx.lineTo(rightEye.x * localCanvas.width - 25, rightEye.y * localCanvas.height);
         ctx.stroke();
 
-        // Clown Nose
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(nose.x * localCanvas.width, nose.y * localCanvas.height, 20, 0, 2 * Math.PI);
         ctx.fill();
       }
-      else if (currentEffectIndex === 4) { // Ẩn Danh (Blur/Pixelate box over face)
+      else if (currentEffectIndex === 4) { // Ẩn Danh
         const top = landmarks[10];
         const bottom = landmarks[152];
         const left = landmarks[234];
@@ -255,7 +256,7 @@ function onResults(results) {
         const w = (right.x - left.x) * localCanvas.width;
         const h = (bottom.y - top.y) * localCanvas.height;
 
-        ctx.fillStyle = '#000000'; // Black box to hide face
+        ctx.fillStyle = '#000000';
         ctx.fillRect(x - 20, y - 40, w + 40, h + 60);
       }
     }
@@ -271,7 +272,7 @@ function drawGlowingEye(ctx, x, y) {
   ctx.shadowBlur = 20;
   ctx.shadowColor = "red";
   ctx.fill();
-  ctx.shadowBlur = 0; // reset
+  ctx.shadowBlur = 0;
 }
 
 // 4. Main Event Listeners
@@ -291,8 +292,15 @@ function setupMainEventListeners() {
       alert('Vui lòng nhập tên hoặc mã của bạn bè');
       return;
     }
-    const call = peer.call(APP_PREFIX + friendName, processedStream);
+    
+    // Gọi luôn bằng luồng gốc
+    const call = peer.call(APP_PREFIX + friendName, localStream);
     handleCall(call);
+    
+    // Nếu đang bật hiệu ứng thì đổi track video ngay sau đó
+    if (currentEffectIndex > 0) {
+      setTimeout(() => applyVideoTrackToCall(canvasStream.getVideoTracks()[0]), 500);
+    }
   });
 
   endCallBtn.addEventListener('click', () => {
@@ -310,10 +318,18 @@ function setupMainEventListeners() {
 
   toggleVideoBtn.addEventListener('click', () => {
     isVideoStopped = !isVideoStopped;
-    // We do NOT disable the video track, because we want the stream to stay active
-    // Instead, the onFrame loop will draw a black screen to the canvas
+    // Tắt bật luồng camera và canvas
+    localStream.getVideoTracks()[0].enabled = !isVideoStopped;
+    canvasStream.getVideoTracks()[0].enabled = !isVideoStopped;
+    
     toggleVideoBtn.textContent = isVideoStopped ? '📸 Bật Camera' : '📷 Tắt Camera';
     toggleVideoBtn.classList.toggle('active');
+    
+    // Nếu đang bật hiệu ứng, xoá canvas thành đen khi tắt camera
+    if (isVideoStopped) {
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, localCanvas.width, localCanvas.height);
+    }
   });
 
   toggleEffectBtn.addEventListener('click', () => {
@@ -322,8 +338,18 @@ function setupMainEventListeners() {
     
     if (currentEffectIndex > 0) {
       toggleEffectBtn.classList.add('active');
+      localVideo.classList.add('hidden');
+      localCanvas.classList.remove('hidden');
+      
+      // Áp dụng track của canvas vào cuộc gọi
+      applyVideoTrackToCall(canvasStream.getVideoTracks()[0]);
     } else {
       toggleEffectBtn.classList.remove('active');
+      localVideo.classList.remove('hidden');
+      localCanvas.classList.add('hidden');
+      
+      // Áp dụng lại track video gốc vào cuộc gọi
+      applyVideoTrackToCall(localStream.getVideoTracks()[0]);
     }
   });
 }
