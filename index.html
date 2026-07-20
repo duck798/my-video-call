@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Call Web App</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- PeerJS for WebRTC -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    
+    <!-- MediaPipe for Face Effects -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <!-- Start Overlay for entering custom name/code -->
+    <div id="start-overlay" class="overlay">
+        <div class="overlay-content">
+            <h2>👋 Chào mừng bạn!</h2>
+            <p>Vui lòng tạo một <strong>Mã mời</strong> (hoặc Tên của bạn) để bắt đầu.</p>
+            <input type="text" id="my-custom-id-input" placeholder="Ví dụ: nam123, phong2024..." />
+            <button id="start-app-btn" class="btn primary">Vào ứng dụng</button>
+            <p id="start-error" class="error-msg hidden">Mã này đã có người sử dụng, vui lòng chọn mã khác.</p>
+        </div>
+    </div>
+
+    <div id="app" class="hidden">
+        <header>
+            <h1>🎥 Connect & Video Call</h1>
+            <div class="connection-panel">
+                <div class="my-id-container">
+                    <span>Mã mời của bạn:</span>
+                    <strong id="my-id">...</strong>
+                    <button id="copy-id-btn" class="btn secondary">Copy</button>
+                </div>
+                <div class="call-container">
+                    <input type="text" id="remote-id-input" placeholder="Nhập mã mời của bạn bè" />
+                    <button id="call-btn" class="btn primary">Gọi video</button>
+                </div>
+            </div>
+        </header>
+
+        <main class="video-container">
+            <!-- Remote Video -->
+            <div class="video-wrapper remote">
+                <video id="remote-video" autoplay playsinline></video>
+                <div class="video-label" id="remote-label">Người gọi</div>
+            </div>
+            
+            <!-- Local Video with Canvas for Face Effects -->
+            <div class="video-wrapper local">
+                <video id="local-video" autoplay muted playsinline></video>
+                <canvas id="local-canvas" class="hidden"></canvas>
+                <div class="video-label">Bạn</div>
+            </div>
+        </main>
+
+        <div class="controls">
+            <button id="toggle-audio-btn" class="btn control-btn active">🎤 Tắt Mic</button>
+            <button id="toggle-video-btn" class="btn control-btn active">📷 Tắt Camera</button>
+            <button id="toggle-effect-btn" class="btn control-btn">🎭 Bật mặt nạ 3D</button>
+            <button id="end-call-btn" class="btn danger hidden">Kết thúc cuộc gọi</button>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

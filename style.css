@@ -1,0 +1,249 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  color: #f8fafc;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Start Overlay */
+.overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(15, 23, 42, 0.95);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.overlay-content {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3rem;
+  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.overlay-content h2 {
+  margin-bottom: 1rem;
+  font-size: 2rem;
+  color: #38bdf8;
+}
+
+.overlay-content p {
+  margin-bottom: 1.5rem;
+  color: #cbd5e1;
+}
+
+.overlay-content input {
+  width: 100%;
+  margin-bottom: 1.5rem;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.error-msg {
+  color: #ef4444 !important;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+#app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  flex: 1;
+}
+
+header {
+  text-align: center;
+}
+
+h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  background: linear-gradient(to right, #38bdf8, #818cf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.connection-panel {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.my-id-container, .call-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#my-id {
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  letter-spacing: 1px;
+}
+
+input[type="text"] {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.2);
+  color: white;
+  outline: none;
+  width: 250px;
+  transition: border-color 0.3s;
+}
+
+input[type="text"]:focus {
+  border-color: #38bdf8;
+}
+
+.btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: auto;
+}
+
+.btn.primary {
+  background: #3b82f6;
+  color: white;
+}
+.btn.primary:hover {
+  background: #2563eb;
+}
+
+.btn.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+.btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.btn.danger {
+  background: #ef4444;
+  color: white;
+}
+.btn.danger:hover {
+  background: #dc2626;
+}
+
+.video-container {
+  position: relative;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #000;
+  border-radius: 1.5rem;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  min-height: 500px;
+}
+
+.video-wrapper {
+  position: absolute;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: #111;
+}
+
+.video-wrapper.remote {
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+
+.video-wrapper.local {
+  width: 240px;
+  height: 160px;
+  bottom: 20px;
+  right: 20px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  border: 2px solid rgba(255,255,255,0.2);
+  z-index: 10;
+  transition: transform 0.3s ease;
+}
+
+.video-wrapper.local:hover {
+  transform: scale(1.05);
+}
+
+video, canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.video-label {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
+  backdrop-filter: blur(4px);
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.control-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 2rem;
+  padding: 1rem 2rem;
+}
+
+.control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.control-btn.active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: #3b82f6;
+}
+
+.hidden {
+  display: none !important;
+}
