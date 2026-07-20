@@ -50,10 +50,12 @@
                 <div class="video-label" id="remote-label">Người gọi</div>
             </div>
             
-            <!-- Local Video with Canvas for Face Effects -->
+            <!-- Local Video is now hidden, we only show Canvas -->
+            <video id="local-video" autoplay muted playsinline class="hidden"></video>
+
+            <!-- Local Canvas for rendering Face & Effects -->
             <div class="video-wrapper local">
-                <video id="local-video" autoplay muted playsinline></video>
-                <canvas id="local-canvas" class="hidden"></canvas>
+                <canvas id="local-canvas"></canvas>
                 <div class="video-label">Bạn</div>
             </div>
         </main>
@@ -61,7 +63,7 @@
         <div class="controls">
             <button id="toggle-audio-btn" class="btn control-btn active">🎤 Tắt Mic</button>
             <button id="toggle-video-btn" class="btn control-btn active">📷 Tắt Camera</button>
-            <button id="toggle-effect-btn" class="btn control-btn">🎭 Bật mặt nạ 3D</button>
+            <button id="toggle-effect-btn" class="btn control-btn">✨ Hiệu ứng: Tắt</button>
             <button id="end-call-btn" class="btn danger hidden">Kết thúc cuộc gọi</button>
         </div>
     </div>
