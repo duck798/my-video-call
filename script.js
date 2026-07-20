@@ -1,352 +1,267 @@
-// DOM Elements
-const startOverlay = document.getElementById('start-overlay');
-const startAppBtn = document.getElementById('start-app-btn');
-const myCustomIdInput = document.getElementById('my-custom-id-input');
-const startError = document.getElementById('start-error');
-const appContainer = document.getElementById('app');
+// script.js
 
-const myIdEl = document.getElementById('my-id');
-const copyBtn = document.getElementById('copy-id-btn');
-const remoteIdInput = document.getElementById('remote-id-input');
+// -- DOM Elements --
+const myIdDisplay = document.getElementById('my-id');
+const copyBtn = document.getElementById('copy-btn');
+const friendIdInput = document.getElementById('friend-id');
 const callBtn = document.getElementById('call-btn');
-const endCallBtn = document.getElementById('end-call-btn');
+
 const localVideo = document.getElementById('local-video');
 const remoteVideo = document.getElementById('remote-video');
-const localCanvas = document.getElementById('local-canvas');
-const remoteLabel = document.getElementById('remote-label');
+const remotePlaceholder = document.getElementById('remote-placeholder');
 
-const toggleAudioBtn = document.getElementById('toggle-audio-btn');
-const toggleVideoBtn = document.getElementById('toggle-video-btn');
-const toggleEffectBtn = document.getElementById('toggle-effect-btn');
+const toggleMicBtn = document.getElementById('toggle-mic');
+const toggleCamBtn = document.getElementById('toggle-cam');
+const endCallBtn = document.getElementById('end-call');
 
-// State
-let peer;
-let rawStream;       // Stream trực tiếp từ Camera & Mic
-let outgoingStream;  // Stream gộp (Canvas Video + Mic Audio) gửi cho PeerJS
-let currentCall;
-let isAudioMuted = false;
-let isVideoStopped = false;
+const canvas = document.getElementById('face-canvas');
+const ctx = canvas.getContext('2d');
+const effectButtons = document.querySelectorAll('.effect-btn');
+const modelStatus = document.getElementById('model-status');
 
-// Effects State
-const effects = [
-  "Tắt", 
-  "Lưới Neon", 
-  "Cyborg", 
-  "Hề & Kính", 
-  "Ẩn Danh"
-];
-let currentEffectIndex = 0;
+// -- Variables --
+let peer = null;
+let localStream = null;
+let currentCall = null;
+let activeEffect = 'none';
 
-// MediaPipe variables
-let faceMesh;
-let camera;
-const ctx = localCanvas.getContext('2d');
+// Cấu hình noise suppression (Khử tiếng ồn quạt/gió)
+const constraints = {
+    video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: 'user'
+    },
+    audio: {
+        echoCancellation: true,
+        noiseSuppression: true, // Quan trọng: Khử tiếng ồn nền
+        autoGainControl: true
+    }
+};
 
-const APP_PREFIX = 'vi-call-';
+// -- Image Assets for Face AR --
+const glassesImg = new Image();
+glassesImg.src = 'https://cdn-icons-png.flaticon.com/512/1000/1000966.png'; // Ảnh kính râm mẫu
 
-// ----------------------------------------------------
-// 1. Startup & Init
-// ----------------------------------------------------
-startAppBtn.addEventListener('click', () => {
-  const customName = myCustomIdInput.value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (!customName) {
-    alert('Vui lòng nhập tên hoặc mã cá nhân (chỉ dùng chữ cái và số)');
-    return;
-  }
-  
-  const peerId = APP_PREFIX + customName;
-  startError.classList.add('hidden');
-  startAppBtn.textContent = 'Đang kết nối...';
-  startAppBtn.disabled = true;
+// -- Initialize Application --
+async function init() {
+    try {
+        // 1. Get Local Media Stream
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        localVideo.srcObject = localStream;
+        
+        // Cập nhật sự kiện resize canvas cho khớp với video
+        localVideo.onloadedmetadata = () => {
+            canvas.width = localVideo.offsetWidth;
+            canvas.height = localVideo.offsetHeight;
+        };
 
-  initApp(peerId, customName);
+        // 2. Initialize PeerJS (WebRTC Signaling)
+        // Tạo một ID ngắn ngẫu nhiên cho dễ nhớ
+        const randomId = 'user-' + Math.floor(Math.random() * 10000);
+        peer = new Peer(randomId, {
+            debug: 2
+        });
+
+        peer.on('open', (id) => {
+            myIdDisplay.textContent = id;
+        });
+
+        // Lắng nghe cuộc gọi đến
+        peer.on('call', (call) => {
+            if (confirm(`Có cuộc gọi từ ${call.peer}. Bạn có muốn nghe không?`)) {
+                call.answer(localStream); // Trả lời và gửi stream của mình
+                setupCallEvents(call);
+            } else {
+                call.close();
+            }
+        });
+
+        // 3. Khởi tạo AI Face Detection
+        await loadFaceAPIModels();
+        startFaceTracking();
+
+    } catch (err) {
+        console.error("Lỗi khởi tạo:", err);
+        alert("Vui lòng cấp quyền Camera và Micro để sử dụng tính năng.");
+    }
+}
+
+// -- Call Functions --
+callBtn.addEventListener('click', () => {
+    const friendId = friendIdInput.value.trim();
+    if (!friendId) {
+        alert('Vui lòng nhập ID người nhận!');
+        return;
+    }
+    
+    // Gọi và truyền stream của mình
+    const call = peer.call(friendId, localStream);
+    setupCallEvents(call);
 });
 
-async function initApp(peerId, displayName) {
-  try {
-    peer = new Peer(peerId); 
-
-    peer.on('open', async (id) => {
-      await setupMedia();
-      setupFaceMesh(); // Bắt đầu nhận diện & vẽ Canvas
-      
-      startOverlay.classList.add('hidden');
-      appContainer.classList.remove('hidden');
-      myIdEl.textContent = displayName;
-      setupMainEventListeners();
-    });
-
-    peer.on('error', (err) => {
-      console.error('PeerJS error:', err);
-      if (err.type === 'unavailable-id') {
-        startError.textContent = 'Mã này đã có người sử dụng đang online. Vui lòng chọn mã khác!';
-        startError.classList.remove('hidden');
-      } else {
-        alert('Lỗi kết nối: ' + err.type);
-      }
-      startAppBtn.textContent = 'Vào ứng dụng';
-      startAppBtn.disabled = false;
-    });
-
-    peer.on('call', (call) => {
-      if (confirm('Có người đang gọi cho bạn! Bạn có muốn nghe máy không?')) {
-        call.answer(outgoingStream); 
-        handleCall(call);
-      } else {
-        call.close();
-      }
-    });
-
-  } catch (err) {
-    console.error(err);
-    alert('Có lỗi xảy ra khi khởi tạo.');
-  }
-}
-
-// ----------------------------------------------------
-// 2. Media & Streams
-// ----------------------------------------------------
-async function setupMedia() {
-  try {
-    // 1. Lấy luồng gốc
-    rawStream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-      audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
-    });
-    
-    // Gắn vào thẻ video ẩn để MediaPipe đọc dữ liệu
-    localVideo.srcObject = rawStream;
-    
-    // 2. Tạo luồng Canvas (Video đã qua xử lý hiệu ứng)
-    localCanvas.width = 640;
-    localCanvas.height = 480;
-    // BẮT BUỘC VẼ 1 KHUNG HÌNH ĐEN ĐỂ KÍCH HOẠT CANVAS STREAM (chống lỗi màn hình đen)
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, 640, 480);
-    const canvasStream = localCanvas.captureStream(30);
-
-    // 3. TẠO LUỒNG GỬI ĐI VĨNH VIỄN (Gộp Video từ Canvas + Audio gốc từ Mic)
-    // Điều này đảm bảo Audio luôn hoàn hảo và Video luôn có hiệu ứng
-    outgoingStream = new MediaStream([
-      canvasStream.getVideoTracks()[0], 
-      rawStream.getAudioTracks()[0]
-    ]);
-
-  } catch (err) {
-    console.error('Failed to get local stream', err);
-    alert('Vui lòng cấp quyền sử dụng Camera và Micro để gọi video.');
-  }
-}
-
-function handleCall(call) {
-  currentCall = call;
-  
-  const callerId = call.peer.replace(APP_PREFIX, '');
-  remoteLabel.textContent = "Bạn đang nói chuyện với: " + callerId;
-
-  call.on('stream', (remoteStream) => {
-    console.log("Đã nhận được luồng dữ liệu từ đối phương");
-    remoteVideo.srcObject = remoteStream;
-    // Bắt buộc phát để chống lỗi Autoplay đen màn hình
-    remoteVideo.play().catch(e => console.error("Auto-play prevented", e));
-  });
-
-  call.on('close', () => {
-    remoteVideo.srcObject = null;
-    endCallBtn.classList.add('hidden');
-    callBtn.classList.remove('hidden');
-    remoteLabel.textContent = "Người gọi";
-    currentCall = null;
-  });
-
-  endCallBtn.classList.remove('hidden');
-  callBtn.classList.add('hidden');
-}
-
-// ----------------------------------------------------
-// 3. Face Mesh & Canvas Drawing
-// ----------------------------------------------------
-function setupFaceMesh() {
-  if (typeof FaceMesh === 'undefined') {
-    console.warn("MediaPipe FaceMesh not loaded yet.");
-    return;
-  }
-
-  faceMesh = new FaceMesh({locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-  }});
-  
-  faceMesh.setOptions({
-    maxNumFaces: 1,
-    refineLandmarks: true,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
-
-  faceMesh.onResults(onResults);
-
-  camera = new Camera(localVideo, {
-    onFrame: async () => {
-      // Nếu camera bị tắt, không cần AI quét mặt
-      if (isVideoStopped) {
-        ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, localCanvas.width, localCanvas.height);
-        return;
-      }
-      
-      // Chạy AI để lấy dữ liệu khuôn mặt (cho dù có hiệu ứng hay không để Canvas luôn cập nhật)
-      await faceMesh.send({image: localVideo});
-    },
-    width: 640,
-    height: 480
-  });
-  camera.start();
-}
-
-function onResults(results) {
-  if (isVideoStopped) return; // Đã vẽ đen ở onFrame
-
-  localCanvas.width = localVideo.videoWidth || 640;
-  localCanvas.height = localVideo.videoHeight || 480;
-
-  ctx.save();
-  ctx.clearRect(0, 0, localCanvas.width, localCanvas.height);
-  
-  // 1. Luôn vẽ video gốc làm nền
-  ctx.drawImage(results.image, 0, 0, localCanvas.width, localCanvas.height);
-  
-  // 2. Vẽ hiệu ứng chồng lên nếu có
-  if (currentEffectIndex > 0 && results.multiFaceLandmarks) {
-    for (const landmarks of results.multiFaceLandmarks) {
-      if (typeof drawConnectors === 'undefined' || typeof FACEMESH_TESSELATION === 'undefined') continue;
-
-      if (currentEffectIndex === 1) { // Lưới Neon
-        drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, {color: '#38bdf8', lineWidth: 1});
-      } 
-      else if (currentEffectIndex === 2) { // Cyborg
-        drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, {color: '#ef4444', lineWidth: 1});
-        const leftEye = landmarks[159]; 
-        const rightEye = landmarks[386]; 
-        drawGlowingEye(ctx, leftEye.x * localCanvas.width, leftEye.y * localCanvas.height);
-        drawGlowingEye(ctx, rightEye.x * localCanvas.width, rightEye.y * localCanvas.height);
-      }
-      else if (currentEffectIndex === 3) { // Hề & Kính
-        const nose = landmarks[1];
-        const leftEye = landmarks[159]; 
-        const rightEye = landmarks[386];
-        
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.arc(leftEye.x * localCanvas.width, leftEye.y * localCanvas.height, 25, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(rightEye.x * localCanvas.width, rightEye.y * localCanvas.height, 25, 0, 2 * Math.PI);
-        ctx.stroke();
-        
-        ctx.beginPath();
-        ctx.moveTo(leftEye.x * localCanvas.width + 25, leftEye.y * localCanvas.height);
-        ctx.lineTo(rightEye.x * localCanvas.width - 25, rightEye.y * localCanvas.height);
-        ctx.stroke();
-
-        ctx.fillStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.arc(nose.x * localCanvas.width, nose.y * localCanvas.height, 20, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-      else if (currentEffectIndex === 4) { // Ẩn Danh
-        const top = landmarks[10];
-        const bottom = landmarks[152];
-        const left = landmarks[234];
-        const right = landmarks[454];
-
-        const x = left.x * localCanvas.width;
-        const y = top.y * localCanvas.height;
-        const w = (right.x - left.x) * localCanvas.width;
-        const h = (bottom.y - top.y) * localCanvas.height;
-
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(x - 20, y - 40, w + 40, h + 60);
-      }
-    }
-  }
-  ctx.restore();
-}
-
-function drawGlowingEye(ctx, x, y) {
-  ctx.beginPath();
-  ctx.arc(x, y, 10, 0, 2 * Math.PI);
-  ctx.fillStyle = '#ef4444';
-  ctx.fill();
-  ctx.shadowBlur = 20;
-  ctx.shadowColor = "red";
-  ctx.fill();
-  ctx.shadowBlur = 0;
-}
-
-// ----------------------------------------------------
-// 4. Buttons & Controls
-// ----------------------------------------------------
-function setupMainEventListeners() {
-  copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(myIdEl.textContent);
-    const originalText = copyBtn.textContent;
-    copyBtn.textContent = 'Đã Copy!';
-    setTimeout(() => {
-      copyBtn.textContent = originalText;
-    }, 2000);
-  });
-
-  callBtn.addEventListener('click', () => {
-    const friendName = remoteIdInput.value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!friendName) {
-      alert('Vui lòng nhập tên hoặc mã của bạn bè');
-      return;
-    }
-    
-    // LUÔN GỌI BẰNG OUTGOING STREAM CỐ ĐỊNH
-    const call = peer.call(APP_PREFIX + friendName, outgoingStream);
-    handleCall(call);
-  });
-
-  endCallBtn.addEventListener('click', () => {
+function setupCallEvents(call) {
     if (currentCall) {
-      currentCall.close();
+        currentCall.close();
     }
-  });
+    currentCall = call;
 
-  toggleAudioBtn.addEventListener('click', () => {
-    isAudioMuted = !isAudioMuted;
-    // Ngắt Audio từ luồng gốc, luồng gửi đi sẽ tự động ngắt theo
-    rawStream.getAudioTracks()[0].enabled = !isAudioMuted;
-    toggleAudioBtn.textContent = isAudioMuted ? '🔇 Bật Mic' : '🎤 Tắt Mic';
-    toggleAudioBtn.classList.toggle('active');
-  });
+    call.on('stream', (remoteStream) => {
+        remoteVideo.srcObject = remoteStream;
+        remotePlaceholder.style.display = 'none';
+    });
 
-  toggleVideoBtn.addEventListener('click', () => {
-    isVideoStopped = !isVideoStopped;
-    // Tắt luồng camera để tiết kiệm pin
-    rawStream.getVideoTracks()[0].enabled = !isVideoStopped;
-    
-    toggleVideoBtn.textContent = isVideoStopped ? '📸 Bật Camera' : '📷 Tắt Camera';
-    toggleVideoBtn.classList.toggle('active');
-    
-    // Nếu vừa tắt, chủ động vẽ ngay 1 khung màu đen lên canvas
-    if (isVideoStopped) {
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, localCanvas.width, localCanvas.height);
-    }
-  });
-
-  toggleEffectBtn.addEventListener('click', () => {
-    currentEffectIndex = (currentEffectIndex + 1) % effects.length;
-    toggleEffectBtn.textContent = `✨ Hiệu ứng: ${effects[currentEffectIndex]}`;
-    
-    if (currentEffectIndex > 0) {
-      toggleEffectBtn.classList.add('active');
-    } else {
-      toggleEffectBtn.classList.remove('active');
-    }
-    // Không cần làm gì thêm, Canvas sẽ tự động vẽ theo currentEffectIndex!
-  });
+    call.on('close', () => {
+        remoteVideo.srcObject = null;
+        remotePlaceholder.style.display = 'flex';
+        currentCall = null;
+    });
 }
+
+endCallBtn.addEventListener('click', () => {
+    if (currentCall) {
+        currentCall.close();
+    }
+    remoteVideo.srcObject = null;
+    remotePlaceholder.style.display = 'flex';
+});
+
+// -- Copy ID --
+copyBtn.addEventListener('click', () => {
+    const text = myIdDisplay.textContent;
+    if (text !== 'Đang khởi tạo...') {
+        navigator.clipboard.writeText(text);
+        copyBtn.innerHTML = '<i class="fa-solid fa-check" style="color:var(--success)"></i>';
+        setTimeout(() => {
+            copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i>';
+        }, 2000);
+    }
+});
+
+// -- Media Controls (Mute/Cam off) --
+toggleMicBtn.addEventListener('click', () => {
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        toggleMicBtn.classList.toggle('muted');
+        toggleMicBtn.innerHTML = audioTrack.enabled 
+            ? '<i class="fa-solid fa-microphone"></i>' 
+            : '<i class="fa-solid fa-microphone-slash"></i>';
+    }
+});
+
+toggleCamBtn.addEventListener('click', () => {
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        toggleCamBtn.classList.toggle('off');
+        toggleCamBtn.innerHTML = videoTrack.enabled 
+            ? '<i class="fa-solid fa-video"></i>' 
+            : '<i class="fa-solid fa-video-slash"></i>';
+    }
+});
+
+// -- Face API (Hiệu ứng) --
+// Sử dụng CDN trực tiếp của tác giả để load Model
+const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/';
+
+async function loadFaceAPIModels() {
+    try {
+        await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
+        ]);
+        modelStatus.innerHTML = '<i class="fa-solid fa-check-circle"></i> AI Sẵn sàng';
+        modelStatus.classList.add('ready');
+    } catch (e) {
+        console.error("Lỗi tải Model AI", e);
+        modelStatus.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Lỗi tải AI';
+    }
+}
+
+effectButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+        effectButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeEffect = btn.dataset.effect;
+        
+        // CSS Filters cho video (Nếu chọn mờ mặt qua css)
+        if (activeEffect === 'blur') {
+            // Chúng ta xử lý bằng canvas vẽ đè, không dùng css filter cho local video để nó tự nhiên hơn.
+        }
+    });
+});
+
+async function startFaceTracking() {
+    // Vòng lặp nhận diện khuôn mặt liên tục
+    setInterval(async () => {
+        if (!localVideo.videoWidth || activeEffect === 'none') {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return;
+        }
+
+        // Đảm bảo kích thước Canvas luôn khớp Video
+        canvas.width = localVideo.offsetWidth;
+        canvas.height = localVideo.offsetHeight;
+
+        const displaySize = { width: canvas.width, height: canvas.height };
+        
+        // Cấu hình detector nhẹ để chạy nhanh
+        const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.3 });
+        
+        // Nhận diện
+        const detection = await faceapi.detectSingleFace(localVideo, options).withFaceLandmarks();
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (detection) {
+            // Resize kết quả về kích thước canvas thật
+            const resized = faceapi.resizeResults(detection, displaySize);
+            
+            // localVideo đang bị lật (scaleX(-1)), nên toạ độ x của canvas cũng cần được lật
+            const { x, y, width, height } = resized.detection.box;
+            const flippedX = canvas.width - x - width; // Lật trục x
+
+            if (activeEffect === 'blur') {
+                // Làm mờ khuôn mặt (Vẽ hình chữ nhật mờ)
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; // Nền trắng mờ
+                ctx.backdropFilter = 'blur(10px)'; // Chỉ chạy trên các trình duyệt hỗ trợ Canvas filter
+                // Giả lập blur
+                ctx.fillRect(flippedX, y, width, height);
+                // Vẽ pattern che mờ
+                const imgData = ctx.getImageData(flippedX, y, width, height);
+                // (Đơn giản hóa: vẽ ô vuông đen thay vì blur thực vì API Canvas blur hơi khó)
+                ctx.fillStyle = 'black';
+                ctx.fillRect(flippedX, y, width, height);
+                ctx.fillStyle = 'white';
+                ctx.font = '20px Arial';
+                ctx.fillText("Đã làm mờ", flippedX + 20, y + height/2);
+
+            } else if (activeEffect === 'sunglasses') {
+                // Vẽ kính râm dựa vào mốc mắt (landmarks)
+                // Lấy 2 mắt
+                const leftEye = resized.landmarks.getLeftEye();
+                const rightEye = resized.landmarks.getRightEye();
+                
+                // Tính toán vị trí trung bình
+                const eyeDistance = Math.sqrt(Math.pow(rightEye[0].x - leftEye[0].x, 2) + Math.pow(rightEye[0].y - leftEye[0].y, 2));
+                
+                // Kích thước và toạ độ kính
+                const glassWidth = eyeDistance * 2.5;
+                const glassHeight = glassWidth * 0.5;
+                
+                // Tính toạ độ lật
+                const centerLeftX = canvas.width - leftEye[0].x;
+                const centerRightX = canvas.width - rightEye[3].x;
+                
+                const drawX = centerRightX - glassWidth * 0.1;
+                const drawY = leftEye[0].y - glassHeight * 0.3;
+
+                ctx.drawImage(glassesImg, drawX, drawY, glassWidth, glassHeight);
+            }
+        }
+    }, 100); // Khoảng 10 FPS cho nhẹ
+}
+
+// Khởi chạy khi load xong
+window.addEventListener('load', init);

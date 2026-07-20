@@ -1,71 +1,100 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Call Web App</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Premium Video Call - Noise Cancelling & AR Face</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- PeerJS for signaling -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    
+    <!-- Face-api.js for face detection/effects -->
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="style.css">
-    
-    <!-- PeerJS for WebRTC -->
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    
-    <!-- MediaPipe for Face Effects -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 </head>
 <body>
-    <!-- Start Overlay for entering custom name/code -->
-    <div id="start-overlay" class="overlay">
-        <div class="overlay-content">
-            <h2>👋 Chào mừng bạn!</h2>
-            <p>Vui lòng tạo một <strong>Mã mời</strong> (hoặc Tên của bạn) để bắt đầu.</p>
-            <input type="text" id="my-custom-id-input" placeholder="Ví dụ: nam123, phong2024..." />
-            <button id="start-app-btn" class="btn primary">Vào ứng dụng</button>
-            <p id="start-error" class="error-msg hidden">Mã này đã có người sử dụng, vui lòng chọn mã khác.</p>
-        </div>
-    </div>
+    <div class="app-container">
+        <!-- Sidebar / Control Panel -->
+        <aside class="glass-panel sidebar">
+            <div class="logo">
+                <i class="fa-solid fa-video"></i>
+                <h2>V-Call</h2>
+            </div>
 
-    <div id="app" class="hidden">
-        <header>
-            <h1>🎥 Connect & Video Call</h1>
-            <div class="connection-panel">
-                <div class="my-id-container">
-                    <span>Mã mời của bạn:</span>
-                    <strong id="my-id">...</strong>
-                    <button id="copy-id-btn" class="btn secondary">Copy</button>
+            <div class="connection-box">
+                <h3>Kết nối 1-1</h3>
+                <div class="input-group">
+                    <label>ID của bạn (Gửi cho bạn bè):</label>
+                    <div class="id-display">
+                        <span id="my-id">Đang khởi tạo...</span>
+                        <button id="copy-btn" title="Copy ID"><i class="fa-regular fa-copy"></i></button>
+                    </div>
                 </div>
-                <div class="call-container">
-                    <input type="text" id="remote-id-input" placeholder="Nhập mã mời của bạn bè" />
-                    <button id="call-btn" class="btn primary">Gọi video</button>
+
+                <div class="input-group">
+                    <label>Gọi cho ai đó (Nhập ID của họ):</label>
+                    <input type="text" id="friend-id" placeholder="VD: nam-123">
+                    <button id="call-btn" class="primary-btn"><i class="fa-solid fa-phone"></i> Gọi ngay</button>
                 </div>
             </div>
-        </header>
 
-        <main class="video-container">
-            <!-- Remote Video -->
-            <div class="video-wrapper remote">
-                <video id="remote-video" autoplay playsinline></video>
-                <div class="video-label" id="remote-label">Người gọi</div>
+            <div class="effects-box">
+                <h3>Hiệu ứng khuôn mặt</h3>
+                <p class="status" id="model-status"><i class="fa-solid fa-spinner fa-spin"></i> Đang tải AI Models...</p>
+                <div class="effect-buttons">
+                    <button class="effect-btn active" data-effect="none">Bình thường</button>
+                    <button class="effect-btn" data-effect="sunglasses">Kính râm</button>
+                    <button class="effect-btn" data-effect="blur">Làm mờ mặt</button>
+                </div>
             </div>
             
-            <!-- Local Video and Canvas -->
-            <div class="video-wrapper local">
-                <video id="local-video" autoplay muted playsinline></video>
-                <canvas id="local-canvas" class="hidden"></canvas>
-                <div class="video-label">Bạn</div>
+            <div class="info-box">
+                <p><i class="fa-solid fa-check-circle"></i> Khử ồn chủ động (Quạt, gió)</p>
+                <p><i class="fa-solid fa-shield-halved"></i> Mã hoá P2P an toàn</p>
+            </div>
+        </aside>
+
+        <!-- Main Video Area -->
+        <main class="video-area">
+            <div class="video-container remote-video-container">
+                <div class="placeholder" id="remote-placeholder">
+                    <i class="fa-solid fa-user"></i>
+                    <p>Đang chờ kết nối...</p>
+                </div>
+                <video id="remote-video" autoplay playsinline></video>
+                <div class="video-label remote-label">Bạn bè</div>
+            </div>
+
+            <div class="video-container local-video-container glass-panel">
+                <video id="local-video" autoplay playsinline muted></video>
+                <!-- Canvas for Face AR Effects -->
+                <canvas id="face-canvas"></canvas>
+                <div class="video-label">Bạn (Camera)</div>
+            </div>
+
+            <!-- Controls overlay -->
+            <div class="controls-bar glass-panel">
+                <button id="toggle-mic" class="control-btn" title="Bật/Tắt Mic">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+                <button id="toggle-cam" class="control-btn" title="Bật/Tắt Camera">
+                    <i class="fa-solid fa-video"></i>
+                </button>
+                <button id="end-call" class="control-btn danger-btn" title="Kết thúc cuộc gọi">
+                    <i class="fa-solid fa-phone-slash"></i>
+                </button>
             </div>
         </main>
-
-        <div class="controls">
-            <button id="toggle-audio-btn" class="btn control-btn active">🎤 Tắt Mic</button>
-            <button id="toggle-video-btn" class="btn control-btn active">📷 Tắt Camera</button>
-            <button id="toggle-effect-btn" class="btn control-btn">✨ Hiệu ứng: Tắt</button>
-            <button id="end-call-btn" class="btn danger hidden">Kết thúc cuộc gọi</button>
-        </div>
     </div>
-    
+
+    <!-- Custom JS -->
     <script src="script.js"></script>
 </body>
 </html>
